@@ -54,7 +54,7 @@ class Rosa(BaseEstimator, RegressorMixin):
         q = np.zeros(self.n_components)
 
         # Orthonormal block−loadings and −weights
-        Pb = np.zeros(n_blocks)
+        Pb = []
         
         # Global weights
         W = np.zeros((sum(pk), self.n_components))
@@ -70,9 +70,9 @@ class Rosa(BaseEstimator, RegressorMixin):
             v = [float(np.nan)] * n_blocks
 
             for k in range(n_blocks):
+                
                 # Compute the loading weight candidates
                 v[k] = X[k].T @ y
-                
                 # Modify the associated competing candidate scores
                 t[:, k] = X[k] @ v[k]
 
@@ -80,9 +80,9 @@ class Rosa(BaseEstimator, RegressorMixin):
                 t -= T[:, :a-1] @ (T[:, :a-1].T @ t)
             
             for j in range(n_blocks):
+                
                 # Normalize scores 
                 t[:, j] /= norm(t[:, j])
-                
                 # Compute residuals 
                 r[:, j] = y - t[:, j] * (t[:, j].T * y)
             
@@ -93,10 +93,8 @@ class Rosa(BaseEstimator, RegressorMixin):
             
             # Selected score vector 
             T[:, a] = t[:, i]
-            
             # Regression coefficient 
             q[a] = y @ T[:, a]
-            
             # Update to the smallest residual 
             y = r[:, i]
    
@@ -105,155 +103,25 @@ class Rosa(BaseEstimator, RegressorMixin):
             Wb[i][:, count[i]] = v[i] / norm(v[i])
     
             W[block_idx[i], a] = Wb[i][:, count[i]]
- 
+    
         # Postprocessing
         for k in range(n_blocks):
-            Pb[k] = X[k].T @ T 
-
-        PtW = np.dot(Pb.T, W)
-
-        """
-
-            for k in range(self.num_blocks):
-
-                t[:, k] = t[:, k] / (norm(t[:, k]) + self._eps)
-
-                r[:, k] = y - np.dot(t[:, k], np.dot(t[:, k].T, y))
-
-            # Index of winning block = smallest residual.
-            i = np.argmin(np.sum(r ** 2), axis=0)
-
-            count[i] = count[i] + 1
-
-            # Order of winning blocks.
-            order[a] = i
-
-            T[:, a] = t[:, i]
-
-            q[a] = np.dot(y.T, T[:, a])
-
-            # Update y to smallest residual.
-            y = r[:, i]
-
-            # Orthogonalise and normalise the winning weights.
-            v[i] = v[i] - np.dot(Wb, np.dot(Wb.T, v[i]))
-
-            Wb = v[i] /  (norm(v[i]) + self._eps)
-
-            #W[a] = Wb
-
-        Pb = []
-        for k in range(self.num_blocks):
-
-            Pb.append(np.dot(X.T, T))
-
-            #beta.append(np.dot(W, np.linalg.inv(np.dot(P, W))))
-
-        print(np.shape(Pb))
-
-        PtW = np.triu(np.dot(Pb, W))
-
-        print(np.shape(Pb))
-        print(np.shape(W))
-        print(np.shape(PtW))
-
-        for j in range(self.num_components):
-            W[k] / PtW * q
-
-            #X: (569, 60)
-            #Pb: (30, 4)
-            #PtW: (30, 30)
-            #W: (4, 30)
-            #q: (4)
-
-        beta.append(np.cumsum(W / PtW[k] * q, axis=1))
-
-        beta = np.mean(y, axis=0) - np.dot(np.mean(X, axis=0), beta)
-
-        print(np.shape(beta))
-
-        return beta
-
-
-
-        A = self.num_components
-
-        #for Xi in X:
-        #    _, _ = check_X_y(Xi, y)
-
-        self._org_X, self._org_y = X, y
-
-        nb = 2#len(X)
-        n, _ = np.shape(X)
-
-        pk = [X.shape[1]] * 2 #[np.shape(X[num])[1] for num in range(nb)]
-
-        count = np.zeros(nb)
-        order = np.zeros(A)
-        T = np.zeros((n, A))
-        q = np.zeros(A)
-
-        Pb = [0] * nb
-
-        Wb = [np.zeros((x, n)) for x in pk]
-        W = np.zeros((sum(pk), A))
-
-        X_cent, y_cent = X, y#self.centering(X, y)
-
-        inds = [np.arange(var) for var in pk]
-
-        for i in range(1, nb):
-            inds[i] += int(np.sum(pk[:i]))
-
-        v = [0] * nb
-        t = np.zeros((n, nb))
-        r = np.zeros((n, nb))
-
-        for a in range(A):
-
-            for k in range(nb):
-                v[k] = np.dot(X_cent[k].T, y_cent)
-                t[:, k] = np.dot(X_cent[k], v[k])
-
-            if a > 0:
-                t = t - T[:, :a].dot(np.dot(T[:, :a].T, t))
-
-            for k in range(nb):
-                t[:, k] = t[:, k] / np.linalg.norm(t[:, k])
-
-                offset = np.dot(np.dot(t[:, k], t[:, k].T), y_cent)
-                r[:, k] = y_cent - offset
-
-            i = np.argmin(np.sum(r ** 2))
-            count[i] += 1
-            order[a] = i
-
-            T[:, a] = t[:, i]
-            q[a] = np.dot(np.transpose(y_cent), T[:, a])
-
-            y_cent = r[:, i]
-
-            weight = Wb[i][:, :int(count[i])]
-
-            v[i] -= weight.dot(np.dot(weight.T, v[i]))
-            normalized = v[i] / np.linalg.norm(v[i])
-            Wb[i][:, int(count[i])] = normalized
-            W[inds[i], a] = Wb[i][:, int(count[i])]
-
-        ## Postprocessing
-        for k in range(nb):
-            Pb[k] = np.dot(X_cent[k].T, T)
-
-        PtW = np.triu(np.dot((np.concatenate(Pb, axis=0)).T, W))
-        """
-
-
-    def update_scores(self, scores):
-        pass
-
-    def predict(self, X):
-        pass
-
+            Pb.append(X[k].T @ T)
+        
+        PtW = np.triu(np.concatenate(Pb, axis=0).T @ W)
+        
+        C = np.dot(W, np.linalg.inv(PtW))
+        #C = np.linalg.solve(PtW.T, W.T).T
+    
+        # Regression coefficients 
+        self.coef_ = np.cumsum(C * q, axis=1) 
+        
+        # Intercept 
+        self.intercept_ = np.mean(y) - np.mean(np.concatenate(X, axis=1), axis=0) @ self.coef_
+        
+    def transform(self, X):
+        
+        return self.intercept_ + np.concatenate(X, axis=1) @ self.coef_ 
 
 
 if __name__ == '__main__':
@@ -285,5 +153,5 @@ if __name__ == '__main__':
     
     model = Rosa(group_ids=group_idx, n_components=4)
     model.fit(X_train_std, y_train)
-
+    print(model.transform(X_train_std).shape)
     #print(score(y_test, model.predict(X_test))
