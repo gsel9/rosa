@@ -17,115 +17,100 @@ class Rosa(BaseEstimator, RegressorMixin):
     ROSA—a fast extension of par- tial least squares regression for
     multiblock data analy- sis, J. Chemometrics, doi: 10.1002/cem.2824.
     """
-    def __init__(self, group_ids, num_components=None):
+    def __init__(self, group_ids, n_components=None):
 
         self.group_ids = group_ids
-        self.num_components = num_components
+        self.n_components = n_components
 
         self.num_blocks = None
         self.scores = None
         self.weights = None
 
-        self._eps = 1e-10
-
     def fit(self, X, y):
 
-        A = self.num_components
+        # Number of data points 
+        N, _ = np.shape(X[0])
 
-        # Number of samples
-        n, _ = np.shape(X[0])
+        # Number of variable blocks
+        n_blocks = len(X)
 
-        # Number of blocks.
-        nb = len(X)
+        # Num variables per block
+        pk = [x.shape[1] for x in X]
+        
+        block_idx = [np.arange(X[0].shape[1])]
+        for m in range(1, n_blocks):
+            block_idx.append(np.arange(X[m].shape[1]) + 1 + block_idx[m - 1][-1])
+ 
+        # Count the number of times a block is active 
+        count = np.zeros(n_blocks, dtype=int)
+        
+        # Order of active blocks 
+        order = np.zeros(self.n_components)
 
-        # Num features per block.
-        pk = [30, 30]
+        # Orthonormal scores
+        T = np.zeros((N, self.n_components))
+        
+        # Regression coeffs
+        q = np.zeros(self.n_components)
 
-        p = sum(pk)
+        # Orthonormal block−loadings and −weights
+        Pb = np.zeros(n_blocks)
+        
+        # Global weights
+        W = np.zeros((sum(pk), self.n_components))
+        Wb = [np.zeros((n, N)) for n in pk]
+    
+        # Competing scores and residuals
+        r = np.zeros((N, n_blocks))
+        t = np.zeros((N, n_blocks))
+         
+        for a in range(self.n_components):
+            
+            # Placeholder for loading weight candidates
+            v = [float(np.nan)] * n_blocks
 
-        count = np.zeros((nb), dtype=int)
-
-        order = np.zeros(A)
-
-        T = np.zeros((n, A))
-
-        q = np.zeros(A)
-
-        Pb = np.zeros((p, nb))
-
-        W = np.zeros((p, A))
-
-        # NB: Check this with MATLAB example.
-        Wb = [np.zeros((x, n)) for x in pk]
-
-        # Column indices of blocks.
-        inds = np.arange(60)
-
-        # Column indices per blocks.
-        inds_b = [np.arange(30), np.arange(30, 60)]
-
-        v = [0] * nb
-        t = np.zeros((n, nb))
-        r = np.zeros((n, nb))
-
-        for a in range(A):
-
-            for k in range(nb):
-                v[k] = np.dot(X[k].T, y)
-
-                t[:, k] = np.dot(X[k], v[k])
+            for k in range(n_blocks):
+                # Compute the loading weight candidates
+                v[k] = X[k].T @ y
+                
+                # Modify the associated competing candidate scores
+                t[:, k] = X[k] @ v[k]
 
             if a > 0:
-                t = t - np.dot(T[:, :a - 1], np.dot(T[:, :a - 1].T, t))
-
-            for k in range(nb):
-
-                t[:, k] = t[:, k] / (norm(t[:, k]) + 1e-15)
-
-                i = np.argmin(np.sum(r ** 2), axis=0)
-
-                count[i] += 1
-
-                order[a] = i
-
-                T[:, a] = t[:, i]
-
-                q[a] = np.dot(y.T, T[:, a])
-
-                y = r[:, i]
-
-                """
-                * omega_i = np.dot(np.zeros(p).T, np.dot(v[i].T, np.zeros().T)) (p-dims)
-                * p = sum(pk)
-                * W = [w_1, ..., w_(a-1)]
-                * w_a = omega_i - W * (W.T * omega_i)
-                * w_a != 0 only for the i-th index segment of length p_i.
-
-                omega_i = np.zeros(p)
-                omega_i[inds_b[k]] = v[i]
-
-                # * W = [w_1, ..., w_(a-1)]
-                # * v[i] != 0 only at i-th entry of pi entries.
-
-                v[i] = omega_i - np.dot(W[:, :a], np.dot(W[:, :a].T, omega_i))
-
-                # * W = [w_1, ..., w_(a-1), w_a]
-                W[inds_b[i], a] = v[i][inds_b[i]] / norm(v[i][inds_b[i]] + 1e-15)
-
-                """
-
-                v[i] = v[i] - np.dot(Wb[i][:, :count[i]], np.dot(Wb[i][:, :count[i]].T, v[i]))
-
-                Wb[i][:, count[i]] = v[i] / (norm(v[i]) + 1e-15)
-
-                W[inds_b[i], a] = Wb[i][:, count[i]]
-
+                t -= T[:, :a-1] @ (T[:, :a-1].T @ t)
+            
+            for j in range(n_blocks):
+                # Normalize scores 
+                t[:, j] /= norm(t[:, j])
+                
+                # Compute residuals 
+                r[:, j] = y - t[:, j] * (t[:, j].T * y)
+            
+            i = np.argmin(np.sum(r ** 2, axis=0))
+            
+            count[i] += 1 
+            order[a] = i 
+            
+            # Selected score vector 
+            T[:, a] = t[:, i]
+            
+            # Regression coefficient 
+            q[a] = y @ T[:, a]
+            
+            # Update to the smallest residual 
+            y = r[:, i]
+   
+            v[i] -= Wb[i][:, :count[i]] @ (Wb[i][:, :count[i]].T @ v[i])
+            
+            Wb[i][:, count[i]] = v[i] / norm(v[i])
+    
+            W[block_idx[i], a] = Wb[i][:, count[i]]
+ 
         # Postprocessing
-        for k in range(nb):
-            Pb[inds_b[k], k] = np.dot(X[k].T, T)
+        for k in range(n_blocks):
+            Pb[k] = X[k].T @ T 
 
-        #PtW = np.dot(Pb.T, W)
-
+        PtW = np.dot(Pb.T, W)
 
         """
 
@@ -165,8 +150,6 @@ class Rosa(BaseEstimator, RegressorMixin):
             #beta.append(np.dot(W, np.linalg.inv(np.dot(P, W))))
 
         print(np.shape(Pb))
-
-
 
         PtW = np.triu(np.dot(Pb, W))
 
@@ -282,8 +265,6 @@ if __name__ == '__main__':
 
     X, y = load_breast_cancer(return_X_y=True)
 
-    # Dummy blocks.
-    #group_idx = np.concatenate(([0] * X.shape[1], [1] * X.shape[1]))
     group_idx = [0] * X.shape[1]
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -292,9 +273,17 @@ if __name__ == '__main__':
     scaler = StandardScaler()
     X_train_std = scaler.fit_transform(X_train)
     X_test_std = scaler.transform(X_test)
+    
+    y_train = y_train - np.mean(y_train)
+    
+    Z_train = np.random.random(X_train_std.shape)
+    Z_test = np.random.random(X_test_std.shape)
 
-
-    model = Rosa(group_ids=group_idx, num_components=2)
-    model.fit([X_train_std, X_train_std], y_train)
+    group_idx = [0] * Z_train.shape[0] + [1] * X_train.shape[0] + [2] * X_train.shape[1]
+    X_train_std = [Z_train, X_train_std, X_train_std]
+    X_test_std = [Z_test, X_test_std, X_test_std]
+    
+    model = Rosa(group_ids=group_idx, n_components=4)
+    model.fit(X_train_std, y_train)
 
     #print(score(y_test, model.predict(X_test))
